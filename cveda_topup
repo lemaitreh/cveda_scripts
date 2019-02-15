@@ -1,0 +1,63 @@
+#! /bin/bash
+# ap = anterior posterior phase encoding = disortion right left
+# rl = right left phase enconding = distortion anterior posterior
+
+echo "Starting ..."
+
+# variables
+ap=`${FSLDIR}/bin/remove_ext ${1}`
+rl=`${FSLDIR}/bin/remove_ext ${2}`
+apdim=`${FSLDIR}/bin/fslval ${ap} dim4`
+readout=0.0457
+
+# extract b0 volumes from ap and rl
+echo "Extract b0 volumes"
+printf "" > acqparams.txt
+
+bvalap=(`cat ${ap}.bval`)
+indexb0ap=()
+for i in  ${!bvalap[@]}; do
+	if [ ${bvalap[i]} -eq 0 ]; then
+		indexb0ap+=(${i})
+		ii=`printf "%03d" ${i}`
+		${FSLDIR}/bin/fslroi ${ap} ap_${ap}_b0_${ii} ${i} 1
+		printf -- "-1 0 0 ${readout}\n" >> acqparams.txt
+	fi 
+done
+
+bvalrl=(`cat ${rl}.bval`)
+indexb0rl=()
+for i in  ${!bvalrl[@]}; do
+	if [ ${bvalrl[i]} -eq 0 ]; then
+		indexb0rl+=(${i})
+		ii=`printf "%03d" ${i}`
+		${FSLDIR}/bin/fslroi ${rl} rl_${rl}_b0_${ii} ${i} 1
+		printf -- "0 -1 0 ${readout}\n" >> acqparams.txt
+	fi 
+done
+
+
+${FSLDIR}/bin/fslmerge -t ${ap}_b0merge *_b0_???*
+
+
+# topup
+echo "topup"
+${FSLDIR}/bin/topup --imain=${ap}_b0merge --datain=acqparams.txt --config=b02b0.cnf --out=${ap}_b0merge_topup_results --fout=${ap}_b0merge_topup_field --iout=${ap}_b0merge_topup_unwarped
+
+# bet
+echo "bet"
+${FSLDIR}/bin/fslmaths ${ap}_b0merge_topup_unwarped -Tmean ${ap}_b0merge_topup_unwarped_mean
+${FSLDIR}/bin/bet ${ap}_b0merge_topup_unwarped_mean ${ap}_b0merge_topup_unwarped_mean_brain -m
+
+# eddy
+echo "eddy"
+for ((i=1;i<=apdim;i++)); do
+	indx="${indx} 1";
+done
+echo ${indx} > index.txt
+
+${FSLDIR}/bin/eddy_openmp --imain=${ap} --mask=${ap}_b0merge_topup_unwarped_mean_brain_mask --acqp=acqparams.txt --index=index.txt --bvecs=${ap}.bvec --bvals=${ap}.bval --topup=${ap}_b0merge_topup_results --repol --out=${ap}_eddy_corrected
+echo "Done"
+
+###################################################
+
