@@ -1,40 +1,29 @@
 #! /bin/bash
 if [ $# -lt 2 ] ; then
     echo "" ;	
-    echo "Usage: cveda_topup <ap> <rl>" ;
+    echo "Usage: cveda_topup <rl> <ap>" ;
     echo "" ;
-    echo "v.1 15/02/2019 H. Lemaitre (herve.lemaitre@u-psud.fr)" ;
+    echo "v.1.1 15/02/2019 H. Lemaitre (herve.lemaitre@u-psud.fr)" ;
     echo "" ;
     echo "Depends: FSL (>= 5)" ;
     echo "" ;
     exit 1 ; 
 fi
 
-# ap = anterior posterior phase encoding = right left distortion
-# rl = right left phase enconding = anterior posterior distortion 
+# rl = right left phase enconding = right left distortion
+# ap = anterior posterior phase encoding = anterior posterior distortion  
 
 echo "Starting ..."
 
 # variables
-ap=`${FSLDIR}/bin/remove_ext ${1}`
-rl=`${FSLDIR}/bin/remove_ext ${2}`
-apdim=`${FSLDIR}/bin/fslval ${ap} dim4`
+rl=`${FSLDIR}/bin/remove_ext ${1}`
+ap=`${FSLDIR}/bin/remove_ext ${2}`
+rldim=`${FSLDIR}/bin/fslval ${rl} dim4`
 readout=0.0457
 
-# extract b0 volumes from ap and rl
+# extract b0 volumes from rl and ap
 echo "Extract b0 volumes"
 printf "" > acqparams.txt
-
-bvalap=(`cat ${ap}.bval`)
-indexb0ap=()
-for i in  ${!bvalap[@]}; do
-	if [ ${bvalap[i]} -eq 0 ]; then
-		indexb0ap+=(${i})
-		ii=`printf "%03d" ${i}`
-		${FSLDIR}/bin/fslroi ${ap} ap_${ap}_b0_${ii} ${i} 1
-		printf -- "-1 0 0 ${readout}\n" >> acqparams.txt
-	fi 
-done
 
 bvalrl=(`cat ${rl}.bval`)
 indexb0rl=()
@@ -43,31 +32,42 @@ for i in  ${!bvalrl[@]}; do
 		indexb0rl+=(${i})
 		ii=`printf "%03d" ${i}`
 		${FSLDIR}/bin/fslroi ${rl} rl_${rl}_b0_${ii} ${i} 1
+		printf -- "-1 0 0 ${readout}\n" >> acqparams.txt
+	fi 
+done
+
+bvalap=(`cat ${ap}.bval`)
+indexb0ap=()
+for i in  ${!bvalap[@]}; do
+	if [ ${bvalap[i]} -eq 0 ]; then
+		indexb0ap+=(${i})
+		ii=`printf "%03d" ${i}`
+		${FSLDIR}/bin/fslroi ${ap} ap_${ap}_b0_${ii} ${i} 1
 		printf -- "0 -1 0 ${readout}\n" >> acqparams.txt
 	fi 
 done
 
 
-${FSLDIR}/bin/fslmerge -t ${ap}_b0merge *_b0_???*
+${FSLDIR}/bin/fslmerge -t ${rl}_b0merge *_b0_???*
 
 
 # topup
 echo "topup"
-${FSLDIR}/bin/topup --imain=${ap}_b0merge --datain=acqparams.txt --config=b02b0.cnf --out=${ap}_b0merge_topup_results --fout=${ap}_b0merge_topup_field --iout=${ap}_b0merge_topup_unwarped
+${FSLDIR}/bin/topup --imain=${rl}_b0merge --datain=acqparams.txt --config=b02b0.cnf --out=${rl}_b0merge_topup_results --fout=${rl}_b0merge_topup_field --iout=${rl}_b0merge_topup_unwarped
 
 # bet
 echo "bet"
-${FSLDIR}/bin/fslmaths ${ap}_b0merge_topup_unwarped -Tmean ${ap}_b0merge_topup_unwarped_mean
-${FSLDIR}/bin/bet ${ap}_b0merge_topup_unwarped_mean ${ap}_b0merge_topup_unwarped_mean_brain -m
+${FSLDIR}/bin/fslmaths ${rl}_b0merge_topup_unwarped -Tmean ${rl}_b0merge_topup_unwarped_mean
+${FSLDIR}/bin/bet ${rl}_b0merge_topup_unwarped_mean ${rl}_b0merge_topup_unwarped_mean_brain -m
 
 # eddy
 echo "eddy"
-for ((i=1;i<=apdim;i++)); do
+for ((i=1;i<=rldim;i++)); do
 	indx="${indx} 1";
 done
 echo ${indx} > index.txt
 
-${FSLDIR}/bin/eddy_openmp --imain=${ap} --mask=${ap}_b0merge_topup_unwarped_mean_brain_mask --acqp=acqparams.txt --index=index.txt --bvecs=${ap}.bvec --bvals=${ap}.bval --topup=${ap}_b0merge_topup_results --repol --out=${ap}_eddy_corrected
+${FSLDIR}/bin/eddy_openmp --imain=${rl} --mask=${rl}_b0merge_topup_unwarped_mean_brain_mask --acqp=acqparams.txt --index=index.txt --bvecs=${rl}.bvec --bvals=${rl}.bval --topup=${rl}_b0merge_topup_results --repol --out=${rl}_eddy_corrected
 echo "Done"
 
 ###################################################
